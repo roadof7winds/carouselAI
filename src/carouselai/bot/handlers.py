@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -33,8 +34,9 @@ async def cmd_start(message: Message) -> None:
     await message.answer(
         "Пришли текст идеи — соберу карусель по шаблону по умолчанию.\n\n"
         "/templates — список сохранённых шаблонов\n"
-        "/setbg <id_шаблона> — задать подложку (пришли команду, затем фото; "
-        "или сразу фото с такой подписью)\n"
+        "/setbg <id_шаблона> — подложка по умолчанию для всех слайдов шаблона\n"
+        "/setslidebg <id_карусели> <номер_слайда> — своя подложка для одного слайда "
+        "(пришли команду, затем фото; или сразу фото с такой подписью)\n"
         "/edit <id_карусели> <номер_слайда> <новый текст> — правка текста слайда\n"
         "/export <id_карусели> — прислать все слайды одним zip-архивом"
     )
@@ -97,32 +99,68 @@ async def cmd_setbg(message: Message, state: FSMContext) -> None:
         await message.answer(f"Шаблон {template_id!r} не найден. /templates — список.")
         return
 
-    await state.update_data(template_id=template_id)
+    await state.update_data(mode="template", template_id=template_id)
     await state.set_state(TemplateStates.waiting_for_background)
-    await message.answer(f"Пришли картинку — она станет подложкой шаблона {template_id!r}.")
+    await message.answer(f"Пришли картинку — она станет подложкой по умолчанию для шаблона {template_id!r}.")
+
+
+@router.message(Command("setslidebg"))
+async def cmd_setslidebg(message: Message, state: FSMContext) -> None:
+    parts = (message.text or "").split()
+    if len(parts) < 3:
+        await message.answer("Формат: /setslidebg <id_карусели> <номер_слайда>")
+        return
+
+    carousel_id, index_str = parts[1], parts[2]
+    try:
+        slide_index = int(index_str)
+    except ValueError:
+        await message.answer("Номер слайда должен быть числом.")
+        return
+
+    try:
+        service.carousels.load(carousel_id)
+    except FileNotFoundError:
+        await message.answer(f"Карусель {carousel_id!r} не найдена.")
+        return
+
+    await state.update_data(mode="slide", carousel_id=carousel_id, slide_index=slide_index)
+    await state.set_state(TemplateStates.waiting_for_background)
+    await message.answer(f"Пришли картинку — она станет подложкой слайда {slide_index + 1} этой карусели.")
+
+
+def _parse_setbg_caption(caption: str) -> Optional[tuple[str, dict]]:
+    parts = caption.split()
+    if not parts:
+        return None
+    if parts[0] == "/setbg":
+        template_id = parts[1] if len(parts) > 1 else "default"
+        return "template", {"template_id": template_id}
+    if parts[0] == "/setslidebg" and len(parts) >= 3:
+        try:
+            slide_index = int(parts[2])
+        except ValueError:
+            return None
+        return "slide", {"carousel_id": parts[1], "slide_index": slide_index}
+    return None
 
 
 @router.message(F.photo)
 async def handle_background_photo(message: Message, state: FSMContext) -> None:
     caption = (message.caption or "").strip()
-    if caption.startswith("/setbg"):
-        caption_parts = caption.split(maxsplit=1)
-        template_id = caption_parts[1].strip() if len(caption_parts) > 1 else "default"
+    parsed = _parse_setbg_caption(caption)
+    if parsed is not None:
+        mode, data = parsed
     else:
-        template_id = (await state.get_data()).get("template_id")
+        data = await state.get_data()
+        mode = data.get("mode")
 
-    if not template_id:
+    if mode not in ("template", "slide"):
         await message.answer(
-            "Сначала выбери шаблон: /setbg <id_шаблона>, затем пришли картинку "
-            "(или сразу пришли фото с подписью «/setbg <id_шаблона>»)."
+            "Сначала укажи, куда: /setbg <id_шаблона> для подложки по умолчанию, "
+            "или /setslidebg <id_карусели> <номер_слайда> для подложки одного слайда — "
+            "затем пришли картинку (можно сразу с такой подписью)."
         )
-        return
-
-    try:
-        service.templates.load(template_id)
-    except FileNotFoundError:
-        await message.answer(f"Шаблон {template_id!r} не найден. /templates — список.")
-        await state.clear()
         return
 
     photo = message.photo[-1]
@@ -131,15 +169,28 @@ async def handle_background_photo(message: Message, state: FSMContext) -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
         local_path = Path(tmp_dir) / f"{photo.file_unique_id}.jpg"
         await message.bot.download_file(telegram_file.file_path, destination=local_path)
-        template = service.set_template_background(template_id, str(local_path))
 
-        preview = render_slide(template, "Пример текста на новой подложке")
+        try:
+            if mode == "template":
+                template_id = data["template_id"]
+                template = service.set_template_background(template_id, str(local_path))
+                preview = render_slide(template, "Пример текста на новой подложке")
+                caption_text = f"Подложка по умолчанию шаблона {template_id!r} обновлена."
+            else:
+                carousel_id, slide_index = data["carousel_id"], data["slide_index"]
+                carousel = service.set_slide_background(carousel_id, slide_index, str(local_path))
+                slide = next(s for s in carousel.slides if s.index == slide_index)
+                template = service.templates.load(carousel.template_id)
+                preview = render_slide(template, slide.text, slide.font_overrides, slide.background_image)
+                caption_text = f"Подложка слайда {slide_index + 1} карусели {carousel_id!r} обновлена."
+        except (FileNotFoundError, ValueError) as error:
+            await message.answer(f"Не получилось: {error}")
+            await state.clear()
+            return
+
         preview_path = Path(tmp_dir) / "preview.png"
         preview.save(preview_path)
-        await message.answer_photo(
-            FSInputFile(preview_path),
-            caption=f"Подложка шаблона {template_id!r} обновлена.",
-        )
+        await message.answer_photo(FSInputFile(preview_path), caption=caption_text)
 
     await state.clear()
 
@@ -160,5 +211,6 @@ async def handle_idea_text(message: Message) -> None:
     await message.answer(
         f"Готово: {len(carousel.slides)} слайдов (id: {carousel.id}).\n"
         f"Правка: /edit {carousel.id} <номер_слайда> <новый текст>\n"
+        f"Подложка слайда: /setslidebg {carousel.id} <номер_слайда>\n"
         f"Архив: /export {carousel.id}"
     )

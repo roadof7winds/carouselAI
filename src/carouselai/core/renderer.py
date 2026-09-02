@@ -42,12 +42,20 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFon
     return lines
 
 
-def render_slide(template: Template, text: str, font_overrides: Optional[FontStyle] = None) -> Image.Image:
+def render_slide(
+    template: Template,
+    text: str,
+    font_overrides: Optional[FontStyle] = None,
+    background_image: Optional[str] = None,
+) -> Image.Image:
+    """Renders one slide. `background_image`, when given, overrides the template's background
+    for this slide only (e.g. a per-slide photo uploaded for one carousel)."""
     font_style = font_overrides or template.font
     canvas = Image.new("RGB", (template.canvas_width, template.canvas_height), template.background_color)
 
-    if template.background_image and Path(template.background_image).exists():
-        background = Image.open(template.background_image).convert("RGB")
+    effective_background = background_image or template.background_image
+    if effective_background and Path(effective_background).exists():
+        background = Image.open(effective_background).convert("RGB")
         background = background.resize((template.canvas_width, template.canvas_height))
         canvas.paste(background, (0, 0))
 

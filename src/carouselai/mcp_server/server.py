@@ -82,9 +82,27 @@ def export_carousel(carousel_id: str) -> dict:
 
 @mcp.tool()
 def set_template_background(template_id: str, image_path: str) -> dict:
-    """Set (or replace) a template's background image from a local file path."""
+    """Set (or replace) a template's default background image from a local file path.
+
+    Applies to every slide of carousels using this template, unless a slide has its
+    own background set via `set_slide_background`.
+    """
     template = service.set_template_background(template_id, image_path)
     return template.model_dump()
+
+
+@mcp.tool()
+def set_slide_background(carousel_id: str, slide_index: int, image_path: str) -> dict:
+    """Set (or replace) one slide's own background image, independent of the other slides
+    in the same carousel. Use this to give each slide of a carousel its own picture."""
+    carousel = service.set_slide_background(carousel_id, slide_index, image_path)
+    slide = next(s for s in carousel.slides if s.index == slide_index)
+    return {
+        "carousel_id": carousel.id,
+        "index": slide.index,
+        "background_image": slide.background_image,
+        "image_path": str(service.carousels.slide_image_path(carousel.id, slide.index)),
+    }
 
 
 @mcp.tool()

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>carouselAI — редактор каруселей</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <header>
+    <h1>carouselAI</h1>
+    <p class="subtitle">Текст идеи → карусель для Instagram → правка на лету → экспорт</p>
+  </header>
+
+  <main>
+    <section class="panel" id="create-panel">
+      <h2>1. Новая карусель</h2>
+      <label>
+        Текст идеи
+        <textarea id="idea-text" rows="6" placeholder="Вставь текст — он будет разбит на слайды по лимиту символов шаблона"></textarea>
+      </label>
+      <div class="row">
+        <label class="grow">
+          Шаблон
+          <select id="template-select"></select>
+        </label>
+        <label class="grow">
+          Заголовок (необязательно)
+          <input id="carousel-title" type="text" placeholder="Для памяти, на картинки не влияет" />
+        </label>
+      </div>
+      <button id="generate-btn">Сгенерировать карусель</button>
+      <p class="error" id="create-error" hidden></p>
+    </section>
+
+    <section class="panel" id="carousel-panel" hidden>
+      <h2>2. Слайды</h2>
+      <div class="row carousel-toolbar">
+        <span id="carousel-id-label"></span>
+        <button id="export-zip-btn">Скачать всё (zip)</button>
+        <label class="inline">
+          Сохранить макет как шаблон
+          <input id="save-template-name" type="text" placeholder="Название шаблона" />
+        </label>
+        <button id="save-template-btn">Сохранить макет</button>
+      </div>
+      <p class="hint">Каждый слайд может иметь свою подложку — файл ниже применяется только к этой карточке.</p>
+      <div id="slides-grid" class="slides-grid"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

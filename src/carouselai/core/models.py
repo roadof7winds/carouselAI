@@ -52,6 +52,8 @@ class Slide(BaseModel):
     index: int
     text: str
     font_overrides: Optional[FontStyle] = None
+    background_image: Optional[str] = None
+    """Per-slide background, overriding the template's background for this slide only."""
 
 
 class Carousel(BaseModel):

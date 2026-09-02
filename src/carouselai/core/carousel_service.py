@@ -46,7 +46,7 @@ class CarouselService:
 
     def _render_all(self, carousel: Carousel, template: Template) -> None:
         for slide in carousel.slides:
-            image = render_slide(template, slide.text, slide.font_overrides)
+            image = render_slide(template, slide.text, slide.font_overrides, slide.background_image)
             image.save(self.carousels.slide_image_path(carousel.id, slide.index))
 
     def edit_slide(
@@ -77,7 +77,23 @@ class CarouselService:
             slide.text = text
 
         self.carousels.save(carousel)
-        image = render_slide(template, slide.text, slide.font_overrides)
+        image = render_slide(template, slide.text, slide.font_overrides, slide.background_image)
+        image.save(self.carousels.slide_image_path(carousel.id, slide.index))
+        return carousel
+
+    def set_slide_background(self, carousel_id: str, slide_index: int, source_image_path: str) -> Carousel:
+        """Set (or replace) one slide's own background, independent of the other slides."""
+        carousel = self.carousels.load(carousel_id)
+        slide = next((s for s in carousel.slides if s.index == slide_index), None)
+        if slide is None:
+            raise ValueError(f"Slide {slide_index} not found in carousel {carousel_id!r}")
+
+        stored_path = self.carousels.save_slide_background(carousel_id, slide_index, source_image_path)
+        slide.background_image = stored_path
+        self.carousels.save(carousel)
+
+        template = self.templates.load(carousel.template_id)
+        image = render_slide(template, slide.text, slide.font_overrides, slide.background_image)
         image.save(self.carousels.slide_image_path(carousel.id, slide.index))
         return carousel
 

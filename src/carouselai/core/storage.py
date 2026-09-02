@@ -25,6 +25,20 @@ class CarouselStore:
     def slide_image_path(self, carousel_id: str, index: int) -> Path:
         return self.images_dir(carousel_id) / f"slide_{index:02d}.png"
 
+    def backgrounds_dir(self, carousel_id: str) -> Path:
+        directory = self._dir(carousel_id) / "backgrounds"
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory
+
+    def save_slide_background(self, carousel_id: str, index: int, source_path: str) -> str:
+        """Copies an uploaded image in as slide `index`'s background, replacing any prior one."""
+        directory = self.backgrounds_dir(carousel_id)
+        for existing in directory.glob(f"slide_{index:02d}.*"):
+            existing.unlink()
+        dest = directory / f"slide_{index:02d}{Path(source_path).suffix or '.png'}"
+        shutil.copy(source_path, dest)
+        return str(dest)
+
     def save(self, carousel: Carousel) -> Carousel:
         directory = self._dir(carousel.id)
         directory.mkdir(parents=True, exist_ok=True)

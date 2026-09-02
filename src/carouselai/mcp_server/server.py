@@ -81,6 +81,13 @@ def export_carousel(carousel_id: str) -> dict:
 
 
 @mcp.tool()
+def set_template_background(template_id: str, image_path: str) -> dict:
+    """Set (or replace) a template's background image from a local file path."""
+    template = service.set_template_background(template_id, image_path)
+    return template.model_dump()
+
+
+@mcp.tool()
 def save_as_template(carousel_id: str, name: str) -> dict:
     """Save the layout (font, box, color, size, background) a carousel used as a new reusable named template."""
     template = service.save_as_template(carousel_id, name)

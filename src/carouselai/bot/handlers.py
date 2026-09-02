@@ -6,11 +6,17 @@ per-user storage before running with multiple concurrent users.
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import FSInputFile, Message
 
 from carouselai.core.carousel_service import CarouselService
+from carouselai.core.renderer import render_slide
 
 router = Router()
 service = CarouselService()
@@ -18,11 +24,17 @@ service = CarouselService()
 _last_carousel: dict[int, str] = {}
 
 
+class TemplateStates(StatesGroup):
+    waiting_for_background = State()
+
+
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
     await message.answer(
         "Пришли текст идеи — соберу карусель по шаблону по умолчанию.\n\n"
         "/templates — список сохранённых шаблонов\n"
+        "/setbg <id_шаблона> — задать подложку (пришли команду, затем фото; "
+        "или сразу фото с такой подписью)\n"
         "/edit <id_карусели> <номер_слайда> <новый текст> — правка текста слайда\n"
         "/export <id_карусели> — прислать все слайды одним zip-архивом"
     )
@@ -72,6 +84,64 @@ async def cmd_edit(message: Message) -> None:
 
     path = service.carousels.slide_image_path(carousel.id, slide_index)
     await message.answer_photo(FSInputFile(path), caption=f"Обновлено: слайд {slide_index + 1}")
+
+
+@router.message(Command("setbg"))
+async def cmd_setbg(message: Message, state: FSMContext) -> None:
+    parts = (message.text or "").split(maxsplit=1)
+    template_id = parts[1].strip() if len(parts) > 1 else "default"
+
+    try:
+        service.templates.load(template_id)
+    except FileNotFoundError:
+        await message.answer(f"Шаблон {template_id!r} не найден. /templates — список.")
+        return
+
+    await state.update_data(template_id=template_id)
+    await state.set_state(TemplateStates.waiting_for_background)
+    await message.answer(f"Пришли картинку — она станет подложкой шаблона {template_id!r}.")
+
+
+@router.message(F.photo)
+async def handle_background_photo(message: Message, state: FSMContext) -> None:
+    caption = (message.caption or "").strip()
+    if caption.startswith("/setbg"):
+        caption_parts = caption.split(maxsplit=1)
+        template_id = caption_parts[1].strip() if len(caption_parts) > 1 else "default"
+    else:
+        template_id = (await state.get_data()).get("template_id")
+
+    if not template_id:
+        await message.answer(
+            "Сначала выбери шаблон: /setbg <id_шаблона>, затем пришли картинку "
+            "(или сразу пришли фото с подписью «/setbg <id_шаблона>»)."
+        )
+        return
+
+    try:
+        service.templates.load(template_id)
+    except FileNotFoundError:
+        await message.answer(f"Шаблон {template_id!r} не найден. /templates — список.")
+        await state.clear()
+        return
+
+    photo = message.photo[-1]
+    telegram_file = await message.bot.get_file(photo.file_id)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        local_path = Path(tmp_dir) / f"{photo.file_unique_id}.jpg"
+        await message.bot.download_file(telegram_file.file_path, destination=local_path)
+        template = service.set_template_background(template_id, str(local_path))
+
+        preview = render_slide(template, "Пример текста на новой подложке")
+        preview_path = Path(tmp_dir) / "preview.png"
+        preview.save(preview_path)
+        await message.answer_photo(
+            FSInputFile(preview_path),
+            caption=f"Подложка шаблона {template_id!r} обновлена.",
+        )
+
+    await state.clear()
 
 
 @router.message(F.text & ~F.text.startswith("/"))

@@ -42,9 +42,15 @@ class TemplateStore:
             shutil.rmtree(directory)
 
     def save_background_image(self, template_id: str, source_path: str) -> str:
-        """Copies an uploaded image into the template's directory and returns its stored path."""
+        """Copies an uploaded image into the template's directory and returns its stored path.
+
+        Replaces any previously stored background for this template, even under a
+        different extension, so re-uploads don't leave orphaned files behind.
+        """
         directory = self._dir(template_id)
         directory.mkdir(parents=True, exist_ok=True)
+        for existing in directory.glob("background.*"):
+            existing.unlink()
         dest = directory / f"background{Path(source_path).suffix or '.png'}"
         shutil.copy(source_path, dest)
         return str(dest)

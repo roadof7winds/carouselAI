@@ -27,3 +27,22 @@ def test_delete_removes_template(tmp_path: Path):
     store.delete(saved.id)
 
     assert store.list() == []
+
+
+def test_save_background_image_replaces_previous_file_under_any_extension(tmp_path: Path):
+    store = TemplateStore(tmp_path)
+    template = store.save(Template(name="Test"))
+
+    png_source = tmp_path / "source.png"
+    png_source.write_bytes(b"fake-png-bytes")
+    first_dest = store.save_background_image(template.id, str(png_source))
+
+    jpg_source = tmp_path / "source.jpg"
+    jpg_source.write_bytes(b"fake-jpg-bytes")
+    second_dest = store.save_background_image(template.id, str(jpg_source))
+
+    assert first_dest != second_dest
+    assert not Path(first_dest).exists()
+    assert Path(second_dest).exists()
+    backgrounds = list((tmp_path / template.id).glob("background.*"))
+    assert len(backgrounds) == 1

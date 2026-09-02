@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from carouselai.core.carousel_service import CarouselService
 
@@ -40,6 +41,24 @@ def test_export_zip_contains_all_slide_images(service: CarouselService):
     zip_path = service.export_zip(carousel.id)
     assert zip_path.exists()
     assert zip_path.suffix == ".zip"
+
+
+def test_set_template_background_updates_template_and_is_usable_for_rendering(
+    service: CarouselService, tmp_path: Path
+):
+    source = tmp_path / "uploaded.png"
+    Image.new("RGB", (10, 10), "#336699").save(source)
+
+    template = service.set_template_background("default", str(source))
+
+    assert template.background_image is not None
+    assert Path(template.background_image).exists()
+    assert service.templates.load("default").background_image == template.background_image
+
+    carousel = service.create_carousel("Проверка рендера с подложкой.")
+    slide = carousel.slides[0]
+    image_path = service.carousels.slide_image_path(carousel.id, slide.index)
+    assert image_path.exists()
 
 
 def test_save_as_template_creates_new_template_with_given_name(service: CarouselService):

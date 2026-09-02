@@ -81,6 +81,13 @@ class CarouselService:
         image.save(self.carousels.slide_image_path(carousel.id, slide.index))
         return carousel
 
+    def set_template_background(self, template_id: str, source_image_path: str) -> Template:
+        """Store `source_image_path` as the template's background and persist the change."""
+        template = self.templates.load(template_id)
+        stored_path = self.templates.save_background_image(template_id, source_image_path)
+        updated = template.model_copy(update={"background_image": stored_path})
+        return self.templates.save(updated)
+
     def save_as_template(self, carousel_id: str, name: str) -> Template:
         """Snapshot the layout (font/box/background) a carousel used, as a new reusable template."""
         carousel = self.carousels.load(carousel_id)

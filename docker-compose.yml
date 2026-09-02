@@ -1,0 +1,26 @@
+services:
+  api:
+    build: .
+    command: ["python", "-m", "carouselai.web.app"]
+    environment:
+      CAROUSELAI_DATA_DIR: /app/data
+      CAROUSELAI_WEB_HOST: 0.0.0.0
+      CAROUSELAI_WEB_PORT: "8000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - carouselai-data:/app/data
+    restart: unless-stopped
+
+  bot:
+    build: .
+    command: ["python", "-m", "carouselai.bot.main"]
+    environment:
+      CAROUSELAI_DATA_DIR: /app/data
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    volumes:
+      - carouselai-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  carouselai-data:

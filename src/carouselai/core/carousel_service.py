@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from typing import Optional
 
-from .models import Carousel, FontStyle, Slide, Template, TextAlign
+from .models import Carousel, FontStyle, QueueItem, QueueItemStatus, Slide, Template, TextAlign
+from .queue_store import QueueStore
 from .renderer import render_slide
 from .storage import CarouselStore
 from .template_store import TemplateStore
@@ -27,6 +29,7 @@ class CarouselService:
         root = _resolve_data_root(data_root)
         self.templates = TemplateStore(root / "templates")
         self.carousels = CarouselStore(root / "carousels")
+        self.queue = QueueStore(root / "queue")
         self._ensure_default_template()
 
     def _ensure_default_template(self) -> None:
@@ -115,3 +118,42 @@ class CarouselService:
 
     def export_zip(self, carousel_id: str) -> Path:
         return self.carousels.export_zip(carousel_id)
+
+    # -- Inbox queue: the bot only writes here, an LLM reads/writes it through MCP --
+
+    def enqueue(self, chat_id: int, text: str = "", message_id: Optional[int] = None) -> QueueItem:
+        item = QueueItem(chat_id=chat_id, message_id=message_id, text=text)
+        return self.queue.save(item)
+
+    def add_queue_attachment(self, item_id: str, source_path: str) -> QueueItem:
+        item = self.queue.load(item_id)
+        stored_path = self.queue.save_attachment(item_id, source_path)
+        item.image_paths.append(stored_path)
+        item.updated_at = time.time()
+        return self.queue.save(item)
+
+    def get_queue_item(self, item_id: str) -> QueueItem:
+        return self.queue.load(item_id)
+
+    def list_pending_queue_items(self) -> list[QueueItem]:
+        return self.queue.list_by_status(QueueItemStatus.PENDING)
+
+    def mark_queue_item_processing(self, item_id: str) -> QueueItem:
+        item = self.queue.load(item_id)
+        item.status = QueueItemStatus.PROCESSING
+        item.updated_at = time.time()
+        return self.queue.save(item)
+
+    def mark_queue_item_done(self, item_id: str, carousel_id: str) -> QueueItem:
+        item = self.queue.load(item_id)
+        item.status = QueueItemStatus.DONE
+        item.result_carousel_id = carousel_id
+        item.updated_at = time.time()
+        return self.queue.save(item)
+
+    def mark_queue_item_failed(self, item_id: str, reason: str) -> QueueItem:
+        item = self.queue.load(item_id)
+        item.status = QueueItemStatus.FAILED
+        item.error = reason
+        item.updated_at = time.time()
+        return self.queue.save(item)

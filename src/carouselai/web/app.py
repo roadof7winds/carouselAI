@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -13,15 +14,24 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from carouselai.core.carousel_service import CarouselService
 from carouselai.core.models import Carousel, FontStyle, Template, TextBox
-
-service = CarouselService()
+from carouselai.mcp_server.server import mcp as mcp_server
+from carouselai.mcp_server.server import service
 
 _DATA_ROOT = service.carousels.root.parent
 _STATIC_DIR = Path(__file__).parent / "static"
 
-app = FastAPI(title="carouselAI")
+_mcp_app = mcp_server.streamable_http_app(streamable_http_path="/")
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(mcp_server.session_manager.run())
+        yield
+
+
+app = FastAPI(title="carouselAI", lifespan=_lifespan)
 
 
 def _media_url(absolute_path: Optional[str]) -> Optional[str]:
@@ -202,13 +212,20 @@ def export_carousel(carousel_id: str) -> FileResponse:
 
 
 app.mount("/data", StaticFiles(directory=str(_DATA_ROOT)), name="data")
+# Note the trailing slash: an MCP client must connect to ".../mcp/", not ".../mcp"
+# (without it, Starlette's sub-app routing 405s instead of matching).
+app.mount("/mcp", _mcp_app, name="mcp")
 app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="static")
 
 
 def main() -> None:
+    import os
+
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    host = os.environ.get("CAROUSELAI_WEB_HOST", "127.0.0.1")
+    port = int(os.environ.get("CAROUSELAI_WEB_PORT", "8000"))
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":

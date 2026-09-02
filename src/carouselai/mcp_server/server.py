@@ -2,14 +2,32 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Image, MCPServer
 
 from carouselai.core.carousel_service import CarouselService
 
 mcp = MCPServer("carouselai")
 service = CarouselService()
+
+_RULES_PATH = Path(__file__).resolve().parents[3] / "rules" / "PROCESSING_RULES.md"
+
+
+def _queue_item_payload(item) -> dict:
+    return {
+        "id": item.id,
+        "chat_id": item.chat_id,
+        "message_id": item.message_id,
+        "text": item.text,
+        "image_count": len(item.image_paths),
+        "status": item.status.value,
+        "result_carousel_id": item.result_carousel_id,
+        "error": item.error,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+    }
 
 
 @mcp.tool()
@@ -110,6 +128,55 @@ def save_as_template(carousel_id: str, name: str) -> dict:
     """Save the layout (font, box, color, size, background) a carousel used as a new reusable named template."""
     template = service.save_as_template(carousel_id, name)
     return template.model_dump()
+
+
+@mcp.tool()
+def get_processing_rules() -> str:
+    """Read the human-edited rules for how to turn a queue item into a carousel
+    (slide splitting, tone, image-to-slide matching, template choice). Read this
+    before processing any queue item — it changes without a code deploy."""
+    return _RULES_PATH.read_text(encoding="utf-8")
+
+
+@mcp.tool()
+def list_pending_items() -> list[dict]:
+    """List inbox items the bot collected that no one has processed yet."""
+    return [_queue_item_payload(item) for item in service.list_pending_queue_items()]
+
+
+@mcp.tool()
+def get_queue_item(item_id: str) -> dict:
+    """Get one inbox item's text and how many image attachments it has.
+    Use `read_queue_item_image` to actually see an attachment."""
+    return _queue_item_payload(service.get_queue_item(item_id))
+
+
+@mcp.tool()
+def read_queue_item_image(item_id: str, image_index: int) -> Image:
+    """Return one image attachment of a queue item, to actually look at it
+    (you have no filesystem access to the bot's downloads, only this tool)."""
+    item = service.get_queue_item(item_id)
+    if not 0 <= image_index < len(item.image_paths):
+        raise ValueError(f"Queue item {item_id!r} has no image at index {image_index}")
+    return Image(path=item.image_paths[image_index])
+
+
+@mcp.tool()
+def mark_item_processing(item_id: str) -> dict:
+    """Claim a pending item so it isn't processed twice. Call this before working on it."""
+    return _queue_item_payload(service.mark_queue_item_processing(item_id))
+
+
+@mcp.tool()
+def mark_item_done(item_id: str, carousel_id: str) -> dict:
+    """Mark a queue item as finished and link it to the carousel that was built from it."""
+    return _queue_item_payload(service.mark_queue_item_done(item_id, carousel_id))
+
+
+@mcp.tool()
+def mark_item_failed(item_id: str, reason: str) -> dict:
+    """Mark a queue item as failed with a human-readable reason (bad input, unclear request, etc.)."""
+    return _queue_item_payload(service.mark_queue_item_failed(item_id, reason))
 
 
 def main() -> None:

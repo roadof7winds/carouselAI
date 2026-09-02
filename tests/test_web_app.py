@@ -9,10 +9,14 @@ from PIL import Image
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CAROUSELAI_DATA_DIR", str(tmp_path))
+    import carouselai.mcp_server.server as mcp_server_module
+
+    importlib.reload(mcp_server_module)
     import carouselai.web.app as app_module
 
     importlib.reload(app_module)
-    return TestClient(app_module.app)
+    with TestClient(app_module.app) as test_client:
+        yield test_client
 
 
 def test_list_templates_includes_default(client: TestClient):
@@ -94,3 +98,11 @@ def test_frontend_index_served(client: TestClient):
     response = client.get("/")
     assert response.status_code == 200
     assert "carouselAI" in response.text
+
+
+def test_mcp_mounted_and_routable(client: TestClient):
+    # No valid MCP session/headers here, just proving the mount itself is wired up
+    # (a 404 would mean routing is broken; the MCP transport rejecting a bare
+    # GET/POST without proper headers is expected and fine).
+    response = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    assert response.status_code != 404

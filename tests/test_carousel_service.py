@@ -114,3 +114,47 @@ def test_save_as_template_creates_new_template_with_given_name(service: Carousel
     assert template.id != "default"
     assert template.name == "Мой макет"
     assert service.templates.load(template.id).name == "Мой макет"
+
+
+def test_enqueue_creates_pending_item(service: CarouselService):
+    item = service.enqueue(chat_id=42, text="Идея с ТГ", message_id=7)
+
+    assert item.status.value == "pending"
+    assert item.chat_id == 42
+    assert item.message_id == 7
+    assert item.image_paths == []
+    assert service.list_pending_queue_items() == [item]
+
+
+def test_add_queue_attachment_appends_and_persists(service: CarouselService, tmp_path: Path):
+    item = service.enqueue(chat_id=1, text="Текст")
+    source = tmp_path / "photo.jpg"
+    Image.new("RGB", (10, 10), "#abcdef").save(source)
+
+    updated = service.add_queue_attachment(item.id, str(source))
+    assert len(updated.image_paths) == 1
+    assert Path(updated.image_paths[0]).exists()
+
+    reloaded = service.get_queue_item(item.id)
+    assert reloaded.image_paths == updated.image_paths
+
+
+def test_queue_item_status_transitions(service: CarouselService):
+    item = service.enqueue(chat_id=1, text="Текст")
+
+    processing = service.mark_queue_item_processing(item.id)
+    assert processing.status.value == "processing"
+    assert service.list_pending_queue_items() == []
+
+    carousel = service.create_carousel(item.text)
+    done = service.mark_queue_item_done(item.id, carousel.id)
+    assert done.status.value == "done"
+    assert done.result_carousel_id == carousel.id
+
+
+def test_mark_queue_item_failed_records_reason(service: CarouselService):
+    item = service.enqueue(chat_id=1, text="Текст")
+    failed = service.mark_queue_item_failed(item.id, "картинка не открылась")
+
+    assert failed.status.value == "failed"
+    assert failed.error == "картинка не открылась"

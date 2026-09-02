@@ -62,3 +62,30 @@ class Carousel(BaseModel):
     template_id: str
     slides: list[Slide] = Field(default_factory=list)
     created_at: float = Field(default_factory=time.time)
+
+
+class QueueItemStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class QueueItem(BaseModel):
+    """A raw inbox entry from the Telegram bot: unprocessed text + attachments.
+
+    The bot only ever creates and fills these; deciding what to do with the content
+    (splitting into slides, picking a template, matching photos to slides) happens
+    downstream, driven by an LLM through the MCP tools.
+    """
+
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
+    chat_id: int
+    message_id: Optional[int] = None
+    text: str = ""
+    image_paths: list[str] = Field(default_factory=list)
+    status: QueueItemStatus = QueueItemStatus.PENDING
+    result_carousel_id: Optional[str] = None
+    error: Optional[str] = None
+    created_at: float = Field(default_factory=time.time)
+    updated_at: float = Field(default_factory=time.time)
